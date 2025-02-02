@@ -1,104 +1,290 @@
-import React, { useState } from 'react';
-import { Bot as BotIcon, Gift, UserPlus, Sparkles, ArrowRight, Shield, Zap, Star, Gamepad, UserCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { toast, ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+import { apiConfig } from '../config/api';
 
-const Bot = () => {
+interface Bot {
+  id: string;
+  name: string;
+  status: {
+    isReady: boolean;
+    isAuthenticated: boolean;
+    displayName: string | null;
+    lastError: string | null;
+    hasFriendToken: boolean;
+    deviceId: string | null;
+    accessToken: string | null;
+    accountId: string | null;
+    expiresAt: string | null;
+  };
+}
+
+const Bots = () => {
   const [username, setUsername] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [bots, setBots] = useState<Bot[]>([
+    {
+      id: 'bot1',
+      name: 'Bot Principal',
+      status: {
+        isReady: false,
+        isAuthenticated: false,
+        displayName: null,
+        lastError: null,
+        hasFriendToken: false,
+        deviceId: null,
+        accessToken: null,
+        accountId: null,
+        expiresAt: null
+      }
+    },
+    {
+      id: 'bot2',
+      name: 'Bot Secundario',
+      status: {
+        isReady: false,
+        isAuthenticated: false,
+        displayName: null,
+        lastError: null,
+        hasFriendToken: false,
+        deviceId: null,
+        accessToken: null,
+        accountId: null,
+        expiresAt: null
+      }
+    }
+  ]);
+
+  useEffect(() => {
+    const checkBotsStatus = async () => {
+      const updatedBots = await Promise.all(bots.map(async (bot) => {
+        try {
+          const botId = bot.id; 
+          const url = `${apiConfig.botURL}/bot2/api/bot-status?botId=${botId}`;
+          console.log(`[${new Date().toISOString()}] Iniciando petición GET a:`, url);
+          
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'ngrok-skip-browser-warning': 'true'
+            }
+          });
+          
+          console.log(`[${new Date().toISOString()}] Respuesta para ${bot.name}:`, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: {
+              'content-type': response.headers.get('content-type'),
+              'access-control-allow-origin': response.headers.get('access-control-allow-origin')
+            }
+          });
+
+          const responseText = await response.text();
+          console.log(`[${new Date().toISOString()}] Contenido de la respuesta para ${bot.name}:`, responseText);
+          
+          let data;
+          try {
+            data = JSON.parse(responseText);
+          } catch (error) {
+            console.error(`[${new Date().toISOString()}] Error parseando JSON para ${bot.name}:`, responseText);
+            throw new Error('Error parseando la respuesta del servidor');
+          }
+
+          console.log(`[${new Date().toISOString()}] Datos parseados para ${bot.name}:`, data);
+          
+          if (data.isAuthenticated && !bot.status?.isAuthenticated) {
+            toast.success(`${bot.name} se ha autenticado exitosamente!`, {
+              position: "top-right",
+              autoClose: 3000,
+              hideProgressBar: false,
+              closeOnClick: true,
+              pauseOnHover: true,
+              draggable: true,
+            });
+          }
+          
+          return { 
+            ...bot, 
+            status: {
+              isReady: true,
+              isAuthenticated: Boolean(data.isAuthenticated),
+              displayName: data.displayName || null,
+              lastError: null,
+              hasFriendToken: Boolean(data.deviceId),
+              deviceId: data.deviceId || null,
+              accessToken: null, 
+              accountId: data.accountId || null,
+              expiresAt: data.expiresAt || null
+            }
+          };
+        } catch (error) {
+          console.error(`[${new Date().toISOString()}] Error verificando estado para ${bot.name}:`, error);
+          return {
+            ...bot,
+            status: {
+              ...bot.status,
+              isReady: false,
+              lastError: error instanceof Error ? error.message : 'Error de conexión'
+            }
+          };
+        }
+      }));
+      setBots(updatedBots);
+    };
+
+    checkBotsStatus();
+
+    const interval = setInterval(() => {
+      checkBotsStatus();
+    }, 30000); 
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!username.trim()) {
+      toast.error('Por favor ingresa un nombre de usuario', {
+        position: "top-right",
+        autoClose: 3000,
+        hideProgressBar: false,
+        closeOnClick: true,
+        pauseOnHover: true,
+        draggable: true,
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(`${apiConfig.botURL}/bot2/api/friend-request`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        },
+        body: JSON.stringify({
+          username,
+          sendFromAllBots: true 
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Error al enviar solicitud');
+      }
+
+      if (data.results) {
+        data.results.forEach((result: any) => {
+          if (result.status === 'success') {
+            toast.success(`${result.message} (${result.botId})`, {
+              position: "top-right",
+              autoClose: 3000,
+              hideProgressBar: false,
+              closeOnClick: true,
+              pauseOnHover: true,
+              draggable: true,
+            });
+          }
+        });
+      }
+
+      if (data.errors) {
+        data.errors.forEach((error: any) => {
+          toast.error(`Error con ${error.botId}: ${error.error}`, {
+            position: "top-right",
+            autoClose: 5000,
+            hideProgressBar: false,
+            closeOnClick: true,
+            pauseOnHover: true,
+            draggable: true,
+          });
+        });
+      }
+
+      setUsername('');
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error(error instanceof Error ? error.message : 'Error al enviar solicitudes de amistad', {
+        position: "top-right",
+        autoClose: 5000,
+        hideProgressBar: false,
+        closeOnClick: true,
+        pauseOnHover: true,
+        draggable: true,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA]">
-      {/* Hero Section con diseño asimétrico */}
-      <div className="relative">
-        <div className="absolute inset-0 bg-gradient-to-b from-primary-600/5 to-[#FAFAFA] z-0" />
-        <div className="container mx-auto px-4 pt-20 pb-12 relative z-10">
-          <div className="max-w-4xl mx-auto text-center mb-12">
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary-50 text-primary-600 rounded-full mb-6">
-              <Star className="w-5 h-5" />
-              <span className="font-medium">¡Nuevo! Bot GameStore V2.0</span>
-            </div>
-            <h1 className="text-5xl lg:text-6xl font-bold text-gray-900 mb-6">
-              Obtén <span className="text-primary-600">recompensas exclusivas</span> con nuestro Bot
-            </h1>
-            <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
-              Conecta tu cuenta de Fortnite y comienza a recibir recompensas únicas, items exclusivos y mucho más.
-            </p>
-          </div>
-
-          {/* Formulario de conexión con diseño destacado */}
-          <div className="max-w-md mx-auto">
-            <div className="bg-white rounded-2xl shadow-xl p-8 transform hover:scale-105 transition-all duration-300">
-              <div className="flex items-center gap-4 mb-8">
-                <div className="w-12 h-12 bg-primary-600 rounded-xl flex items-center justify-center">
-                  <BotIcon className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900">Conectar con Bot</h2>
-                  <p className="text-gray-600">Ingresa tus datos para comenzar</p>
-                </div>
-              </div>
-              
-              <div className="space-y-6">
-                <div>
-                  <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
-                    Nombre de usuario de Fortnite
-                  </label>
-                  <input
-                    type="text"
-                    id="username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-100 focus:border-primary-600 transition-all"
-                    placeholder="Ej: Ninja"
-                  />
-                </div>
-                <button className="w-full px-6 py-4 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 group">
-                  <span>Conectar y Recibir Recompensas</span>
-                  <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                </button>
-              </div>
-            </div>
-          </div>
+    <div className="container mx-auto p-4">
+      <ToastContainer />
+      <h1 className="text-2xl font-bold mb-4">Panel de Bots</h1>
+      
+      <div className="mb-6">
+        <div className={`p-4 rounded-lg ${
+          bots.every(bot => bot.status.isReady && bot.status.isAuthenticated)
+            ? 'bg-green-100 text-green-800'
+            : 'bg-red-100 text-red-800'
+        }`}>
+          <p>
+            {bots.every(bot => bot.status.isReady && bot.status.isAuthenticated)
+              ? '¡Todos los bots están conectados!'
+              : 'Algunos bots no están disponibles en este momento'}
+          </p>
         </div>
       </div>
 
-      {/* Sección de características con diseño de tarjetas modernas */}
-      <div className="container mx-auto px-4 pb-20">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {[
-            {
-              icon: <Gamepad className="w-8 h-8" />,
-              title: "¡Comencemos!",
-              description: "Ingresa tu nombre de usuario de Fortnite."
-            },
-            {
-              icon: <UserCheck className="w-8 h-8" />,
-              title: " ¡Amistad en el juego!",
-              description: "Acepta la solicitud de amistad dentro del juego. "
-            },
-            {
-              icon: <Gift className="w-8 h-8" />,
-              title: "¡Regalos para ti!",
-              description: "¡Felicidades! Ahora puedes disfrutar de increíbles regalos directamente desde nuestra tienda."
-            }
-          ].map((feature, index) => (
-            <div
-              key={index}
-              className="bg-white rounded-2xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1"
-            >
-              <div className="w-16 h-16 bg-primary-50 rounded-2xl flex items-center justify-center mb-6 text-primary-600">
-                {feature.icon}
-              </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">
-                {feature.title}
-              </h3>
-              <p className="text-gray-600">
-                {feature.description}
-              </p>
-            </div>
-          ))}
+      <form onSubmit={handleSubmit} className="max-w-md mx-auto">
+        <div className="mb-4">
+          <label htmlFor="username" className="block mb-2">
+            Nombre de usuario de Fortnite
+          </label>
+          <input
+            type="text"
+            id="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className="w-full p-2 border rounded"
+            disabled={loading}
+            placeholder="Ingresa tu usuario"
+          />
         </div>
+        <button
+          type="submit"
+          disabled={loading}
+          className={`w-full p-2 rounded ${
+            loading 
+              ? 'bg-gray-400'
+              : 'bg-blue-500 hover:bg-blue-600'
+          } text-white`}
+        >
+          {loading ? 'Enviando...' : 'Enviar Solicitud'}
+        </button>
+      </form>
+
+      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+        {bots.map(bot => (
+          <div key={bot.id} className="p-4 border rounded">
+            <h3 className="font-bold">{bot.name}</h3>
+            <p className={bot.status.isReady ? 'text-green-600' : 'text-red-600'}>
+              Estado: {bot.status.isReady ? 'Conectado' : 'Desconectado'}
+            </p>
+            {bot.status.lastError && (
+              <p className="text-red-500 text-sm mt-1">
+                Error: {bot.status.lastError}
+              </p>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
 };
 
-export default Bot; 
+export default Bots;
